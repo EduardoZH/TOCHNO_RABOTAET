@@ -1,23 +1,33 @@
-import hashlib
+import logging
 from typing import List
 
 import numpy as np
+from sentence_transformers import SentenceTransformer
 
-from shared.config.settings import vector_config
+from shared.config.settings import model_config, vector_config
+
+logger = logging.getLogger(__name__)
+
+_model: SentenceTransformer | None = None
 
 
-def text_to_embedding(text: str, dim: int = vector_config.embedding_dim) -> List[float]:
-    vector = np.zeros(dim, dtype=float)
-    tokens = [token for token in text.split() if token]
-    if not tokens:
-        return vector.tolist()
+def _get_model() -> SentenceTransformer:
+    global _model
+    if _model is None:
+        logger.info("Loading embedding model: %s", model_config.embedding_model)
+        _model = SentenceTransformer(model_config.embedding_model)
+    return _model
 
-    for idx, token in enumerate(tokens):
-        token_hash = int(hashlib.md5(token.encode()).hexdigest(), 16)
-        position = idx % dim
-        vector[position] += (token_hash % 1000) / 1000.0
 
-    norm = np.linalg.norm(vector)
-    if norm == 0:
-        return vector.tolist()
-    return (vector / norm).tolist()
+def text_to_embedding(text: str) -> List[float]:
+    if not text or not text.strip():
+        return [0.0] * vector_config.embedding_dim
+    model = _get_model()
+    embedding = model.encode(text, normalize_embeddings=True)
+    return embedding.tolist()
+
+
+def texts_to_embeddings(texts: List[str]) -> List[List[float]]:
+    model = _get_model()
+    embeddings = model.encode(texts, normalize_embeddings=True, batch_size=32)
+    return [e.tolist() for e in embeddings]

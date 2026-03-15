@@ -11,7 +11,19 @@ logger = logging.getLogger(__name__)
 
 def _handle_result(ch, method, properties, body):
     payload = json.loads(body)
-    logger.info("Result: %s (cluster %s)", payload.get("post_id"), payload.get("cluster_id"))
+    cluster_id = payload.get("clusterId")
+    project_id = payload.get("projectId")
+    posts = payload.get("posts", [])
+    for post in posts:
+        metrics = post.get("metrics", {})
+        logger.info(
+            "Result: project=%s cluster=%s relevancy=%s tone=%s title=%s",
+            project_id,
+            cluster_id,
+            metrics.get("relevancy"),
+            metrics.get("tone"),
+            post.get("title", "")[:50],
+        )
 
 
 def main() -> None:

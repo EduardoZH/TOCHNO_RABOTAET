@@ -6,7 +6,7 @@ import redis
 
 from qdrant_client.models import ScoredPoint
 
-from shared.config.settings import redis_config, vector_config
+from shared.config.settings import redis_config, vector_config, threshold_config
 from shared.vector_store.qdrant_store import QdrantStore
 
 
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class ClusterManager:
-    def __init__(self, similarity_threshold: float = 0.82):
+    def __init__(self, similarity_threshold: float = threshold_config.similarity_threshold):
         self.redis = redis.from_url(redis_config.url, decode_responses=True)
         self.qdrant = QdrantStore()
         self.similarity_threshold = similarity_threshold

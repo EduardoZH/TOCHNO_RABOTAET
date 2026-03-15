@@ -25,9 +25,11 @@ services:
 
   prefilter:
     build: .
+    image: mlpipeline:latest
     command: python -m services.prefilter_service.main
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     environment:
       - RABBIT_HOST=rabbitmq
       - RABBIT_USER=guest
@@ -38,11 +40,13 @@ services:
     restart: unless-stopped
 
   dedup:
-    build: .
+    image: mlpipeline:latest
     command: python -m services.dedup_service.main
     depends_on:
-      - rabbitmq
-      - redis
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_started
     environment:
       - RABBIT_HOST=rabbitmq
       - RABBIT_USER=guest
@@ -51,38 +55,53 @@ services:
     restart: unless-stopped
 
   embedding:
-    build: .
+    image: mlpipeline:latest
     command: python -m services.embedding_service.main
     depends_on:
-      - rabbitmq
-      - qdrant
+      rabbitmq:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
     environment:
       - RABBIT_HOST=rabbitmq
       - RABBIT_USER=guest
       - RABBIT_PASS=guest
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - EMBEDDING_MODEL=cointegrated/rubert-tiny2
+      - EMBEDDING_DIM=312
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
 
   clustering:
-    build: .
+    image: mlpipeline:latest
     command: python -m services.clustering_service.main
     depends_on:
-      - rabbitmq
-      - qdrant
+      rabbitmq:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
     environment:
       - RABBIT_HOST=rabbitmq
       - RABBIT_USER=guest
       - RABBIT_PASS=guest
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - EMBEDDING_DIM=312
     restart: unless-stopped
 
   nlp:
-    build: .
+    image: mlpipeline:latest
     command: python -m services.nlp_service.main
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     environment:
       - RABBIT_HOST=rabbitmq
       - RABBIT_USER=guest

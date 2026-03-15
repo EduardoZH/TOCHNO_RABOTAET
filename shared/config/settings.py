@@ -10,6 +10,8 @@ class RabbitConfig:
     password: str = os.getenv("RABBIT_PASS", "guest")
     heartbeat: int = 600
     blocked_connection_timeout: int = 300
+    reconnect_delay: float = float(os.getenv("RABBIT_RECONNECT_DELAY", 2.0))
+    reconnect_max_delay: float = float(os.getenv("RABBIT_RECONNECT_MAX_DELAY", 60.0))
 
 
 @dataclass(frozen=True)
@@ -35,13 +37,20 @@ class VectorConfig:
     host: str = os.getenv("QDRANT_HOST", "localhost")
     port: int = int(os.getenv("QDRANT_PORT", 6333))
     collection: str = os.getenv("VECTOR_COLLECTION", "posts")
-    embedding_dim: int = int(os.getenv("EMBEDDING_DIM", 512))
+    embedding_dim: int = int(os.getenv("EMBEDDING_DIM", 312))
     top_k: int = int(os.getenv("CLUSTER_TOP_K", 5))
 
 
 @dataclass(frozen=True)
 class ModelConfig:
     rubert_model: str = os.getenv("RUBERT_MODEL", "DeepPavlov/rubert-base-cased-sentiment")
+    embedding_model: str = os.getenv("EMBEDDING_MODEL", "cointegrated/rubert-tiny2")
+
+
+@dataclass(frozen=True)
+class ThresholdConfig:
+    similarity_threshold: float = float(os.getenv("SIMILARITY_THRESHOLD", 0.82))
+    dedup_hamming_threshold: int = int(os.getenv("DEDUP_HAMMING_THRESHOLD", 3))
 
 
 rabbit_config = RabbitConfig()
@@ -49,3 +58,4 @@ queue_names = QueueNames()
 redis_config = RedisConfig()
 vector_config = VectorConfig()
 model_config = ModelConfig()
+threshold_config = ThresholdConfig()

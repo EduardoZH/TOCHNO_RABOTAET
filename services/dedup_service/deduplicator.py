@@ -1,10 +1,11 @@
 from typing import Tuple
 
+from shared.config.settings import threshold_config
 from shared.hashing.simhash import compute_simhash, generate_buckets, hamming_distance
 
 
 class Deduplicator:
-    def __init__(self, redis_store, threshold: int = 3):
+    def __init__(self, redis_store, threshold: int = threshold_config.dedup_hamming_threshold):
         self.redis_store = redis_store
         self.threshold = threshold
 

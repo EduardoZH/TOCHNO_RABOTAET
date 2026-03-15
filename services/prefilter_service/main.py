@@ -9,7 +9,6 @@ from shared.preprocessing.filters import should_process
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 client = RabbitClient()
 
 
@@ -26,10 +25,8 @@ def _handle_message(ch, method, properties, body):
 
 
 def run() -> None:
-    client = RabbitClient()
-    client.declare_queue(queue_names.filtered)
     client.declare_queue(queue_names.raw)
-
+    client.declare_queue(queue_names.filtered)
     thread = client.consume(queue_names.raw, _handle_message)
     try:
         while thread.is_alive():

@@ -13,13 +13,32 @@ client = RabbitClient()
 model = RuBertModel()
 
 
+def _format_output(payload: dict, nlp_result: dict) -> dict:
+    return {
+        "clusterId": payload.get("cluster_id"),
+        "projectId": payload.get("projectId"),
+        "posts": [
+            {
+                "title": payload.get("title", ""),
+                "content": payload.get("content", "")[:500],
+                "type": payload.get("type", ""),
+                "url_string": payload.get("url_string", ""),
+                "metrics": {
+                    "relevancy": payload.get("relevancy", 0),
+                    "tone": nlp_result.get("sentiment_label", "neutral"),
+                },
+            }
+        ],
+    }
+
+
 def _handle_message(ch, method, properties, body):
     payload = json.loads(body)
     text = payload.get("content", "")
     result = model.predict(text)
-    payload["nlp_analysis"] = result
-    client.publish(queue_names.analysis, payload)
-    logger.debug("NLP: enriched post %s", payload.get("post_id"))
+    output = _format_output(payload, result)
+    client.publish(queue_names.analysis, output)
+    logger.debug("NLP: enriched post %s -> cluster %s", payload.get("post_id"), output["clusterId"])
 
 
 def run() -> None:
