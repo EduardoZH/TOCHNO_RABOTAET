@@ -1,11 +1,13 @@
 import json
 import logging
 import time
+import uuid
 
 import numpy as np
+import pika
 
 from shared.config.settings import queue_names
-from shared.embeddings.embedder import text_to_embedding, texts_to_embeddings
+from shared.embeddings.embedder import text_to_embedding
 from shared.messaging.rabbitmq_client import RabbitClient
 from shared.vector_store.qdrant_store import QdrantStore
 
@@ -42,7 +44,8 @@ def _cosine_similarity(a: list, b: list) -> float:
 def _handle_message(ch, method, properties, body):
     payload = json.loads(body)
     text = payload.get("content", "")
-    post_id = payload.get("post_id", str(time.time()))
+    raw_id = payload.get("post_id", str(time.time()))
+    post_id = str(uuid.uuid5(uuid.NAMESPACE_URL, raw_id))
 
     embedding = text_to_embedding(text)
 
@@ -61,8 +64,13 @@ def _handle_message(ch, method, properties, body):
     )
 
     payload["embedding"] = embedding
-    client.publish(queue_names.embedded, payload)
-    logger.debug("Embedding: indexed post %s (relevancy=%s)", post_id, payload["relevancy"])
+    ch.basic_publish(
+        exchange="",
+        routing_key=queue_names.embedded,
+        body=json.dumps(payload, ensure_ascii=False).encode(),
+        properties=pika.BasicProperties(delivery_mode=2),
+    )
+    logger.info("Embedding: indexed post %s (relevancy=%s)", raw_id, payload["relevancy"])
 
 
 def run() -> None:

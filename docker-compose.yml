@@ -70,13 +70,20 @@ services:
       - QDRANT_PORT=6333
       - EMBEDDING_MODEL=cointegrated/rubert-tiny2
       - EMBEDDING_DIM=312
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # ── GPU-версия ──────────────────────────────────────────
+    # Чтобы включить GPU для embedding-сервиса:
+    #   1. Раскомментируй блок deploy ниже
+    #   2. Убедись что установлен NVIDIA Container Toolkit на хосте:
+    #      https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    #   3. Смени base image в Dockerfile на nvidia/cuda (см. комментарий там)
+    # ────────────────────────────────────────────────────────
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     restart: unless-stopped
 
   clustering:
@@ -87,10 +94,13 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
+      redis:
+        condition: service_started
     environment:
       - RABBIT_HOST=rabbitmq
       - RABBIT_USER=guest
       - RABBIT_PASS=guest
+      - REDIS_URL=redis://redis:6379
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - EMBEDDING_DIM=312

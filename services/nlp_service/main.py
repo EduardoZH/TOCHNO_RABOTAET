@@ -2,6 +2,8 @@ import json
 import logging
 import time
 
+import pika
+
 from shared.config.settings import queue_names
 from shared.models.rubert_model import RuBertModel
 from shared.messaging.rabbitmq_client import RabbitClient
@@ -37,8 +39,16 @@ def _handle_message(ch, method, properties, body):
     text = payload.get("content", "")
     result = model.predict(text)
     output = _format_output(payload, result)
-    client.publish(queue_names.analysis, output)
-    logger.debug("NLP: enriched post %s -> cluster %s", payload.get("post_id"), output["clusterId"])
+    ch.basic_publish(
+        exchange="",
+        routing_key=queue_names.analysis,
+        body=json.dumps(output, ensure_ascii=False).encode(),
+        properties=pika.BasicProperties(delivery_mode=2),
+    )
+    logger.info("NLP: post %s -> cluster %s tone=%s relevancy=%s",
+                payload.get("post_id"), output["clusterId"],
+                output["posts"][0]["metrics"]["tone"],
+                output["posts"][0]["metrics"]["relevancy"])
 
 
 def run() -> None:

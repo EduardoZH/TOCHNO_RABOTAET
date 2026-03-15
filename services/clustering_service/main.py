@@ -2,6 +2,8 @@ import json
 import logging
 import time
 
+import pika
+
 from shared.clustering.cluster_manager import ClusterManager
 from shared.config.settings import queue_names
 from shared.messaging.rabbitmq_client import RabbitClient
@@ -21,8 +23,13 @@ def _handle_message(ch, method, properties, body):
         logger.warning("Clustering: insufficient data for %s", post_id)
         return
     cluster_id = cluster_manager.assign_cluster(post_id, embedding, payload)
-    logger.debug("Clustering: assigned %s to %s", post_id, cluster_id)
-    client.publish(queue_names.clustered, payload)
+    logger.info("Clustering: assigned %s to %s", post_id, cluster_id)
+    ch.basic_publish(
+        exchange="",
+        routing_key=queue_names.clustered,
+        body=json.dumps(payload, ensure_ascii=False).encode(),
+        properties=pika.BasicProperties(delivery_mode=2),
+    )
 
 
 def run() -> None:

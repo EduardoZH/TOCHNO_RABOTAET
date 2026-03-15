@@ -14,14 +14,37 @@ def _lemmatize(text: str) -> str:
     return " ".join(lemmas)
 
 
+def _lemmatize_token(token: str) -> str:
+    return _morph.parse(token.lower())[0].normal_form
+
+
 def contains_keyword(text: str, keywords: Sequence[str]) -> bool:
-    lemmatized = _lemmatize(text)
-    return any(_lemmatize(kw) in lemmatized for kw in keywords)
+    lemmatized_text = _lemmatize(text)
+    for kw in keywords:
+        kw_lemma = _lemmatize_token(kw)
+        # точное совпадение лемм
+        if kw_lemma in lemmatized_text.split():
+            return True
+        # подстрока в лемматизованном тексте (для частичных ключевых слов типа "мошен")
+        if kw.lower() in lemmatized_text or kw_lemma in lemmatized_text:
+            return True
+        # подстрока в оригинальном тексте
+        if kw.lower() in text.lower():
+            return True
+    return False
 
 
 def contains_exclusion(text: str, exclusions: Sequence[str]) -> bool:
-    lemmatized = _lemmatize(text)
-    return any(_lemmatize(exc) in lemmatized for exc in exclusions)
+    if not exclusions:
+        return False
+    lemmatized_text = _lemmatize(text)
+    for exc in exclusions:
+        exc_lemma = _lemmatize_token(exc)
+        if exc_lemma in lemmatized_text.split():
+            return True
+        if exc.lower() in text.lower():
+            return True
+    return False
 
 
 def should_process(post: dict, keywords: Sequence[str], exclusions: Sequence[str]) -> bool:

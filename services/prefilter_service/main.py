@@ -2,6 +2,8 @@ import json
 import logging
 import time
 
+import pika
+
 from shared.config.settings import queue_names
 from shared.messaging.rabbitmq_client import RabbitClient
 from shared.preprocessing.filters import should_process
@@ -18,10 +20,15 @@ def _handle_message(ch, method, properties, body):
     exclusions = payload.get("exclusions", [])
 
     if should_process(payload, keywords, exclusions):
-        client.publish(queue_names.filtered, payload)
-        logger.debug("Prefilter: forwarded post %s", payload.get("post_id"))
+        ch.basic_publish(
+            exchange="",
+            routing_key=queue_names.filtered,
+            body=json.dumps(payload, ensure_ascii=False).encode(),
+            properties=pika.BasicProperties(delivery_mode=2),
+        )
+        logger.info("Prefilter: forwarded post %s", payload.get("post_id"))
     else:
-        logger.debug("Prefilter: post %s filtered out", payload.get("post_id"))
+        logger.info("Prefilter: filtered out post %s", payload.get("post_id"))
 
 
 def run() -> None:

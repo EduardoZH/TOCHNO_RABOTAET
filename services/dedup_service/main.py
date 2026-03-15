@@ -2,6 +2,8 @@ import json
 import logging
 import time
 
+import pika
+
 from services.dedup_service.deduplicator import Deduplicator
 from services.dedup_service.redis_store import RedisStore
 from shared.config.settings import queue_names
@@ -23,8 +25,13 @@ def _handle_message(ch, method, properties, body):
     if duplicate:
         logger.info("Dedup: drop post %s", payload.get("post_id"))
         return
-    client.publish(queue_names.unique, payload)
-    logger.debug("Dedup: forwarded post %s", payload.get("post_id"))
+    ch.basic_publish(
+        exchange="",
+        routing_key=queue_names.unique,
+        body=json.dumps(payload, ensure_ascii=False).encode(),
+        properties=pika.BasicProperties(delivery_mode=2),
+    )
+    logger.info("Dedup: forwarded post %s", payload.get("post_id"))
 
 
 def run() -> None:
