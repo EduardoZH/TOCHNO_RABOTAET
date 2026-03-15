@@ -1,4 +1,5 @@
 import logging
+import threading
 from typing import List
 
 import numpy as np
@@ -9,13 +10,16 @@ from shared.config.settings import model_config, vector_config
 logger = logging.getLogger(__name__)
 
 _model: SentenceTransformer | None = None
+_model_lock = threading.Lock()
 
 
 def _get_model() -> SentenceTransformer:
     global _model
     if _model is None:
-        logger.info("Loading embedding model: %s", model_config.embedding_model)
-        _model = SentenceTransformer(model_config.embedding_model)
+        with _model_lock:
+            if _model is None:
+                logger.info("Loading embedding model: %s", model_config.embedding_model)
+                _model = SentenceTransformer(model_config.embedding_model)
     return _model
 
 

@@ -1,30 +1,27 @@
+import importlib
 import logging
 import os
 import sys
 
-from services.clustering_service import main as clustering_service
-from services.dedup_service import main as dedup_service
-from services.embedding_service import main as embedding_service
-from services.nlp_service import main as nlp_service
-from services.prefilter_service import main as prefilter_service
-
-SERVICE_RUNNERS = {
-    "prefilter": prefilter_service.run,
-    "dedup": dedup_service.run,
-    "embedding": embedding_service.run,
-    "clustering": clustering_service.run,
-    "nlp": nlp_service.run,
+SERVICE_MODULES = {
+    "splitter": "services.splitter_service.main",
+    "prefilter": "services.prefilter_service.main",
+    "dedup": "services.dedup_service.main",
+    "embedding": "services.embedding_service.main",
+    "clustering": "services.clustering_service.main",
+    "nlp": "services.nlp_service.main",
 }
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
     service_name = os.getenv("SERVICE_STAGE", "prefilter")
-    runner = SERVICE_RUNNERS.get(service_name)
-    if runner is None:
+    module_path = SERVICE_MODULES.get(service_name)
+    if module_path is None:
         logging.fatal("Unknown service stage %s", service_name)
         sys.exit(1)
-    runner()
+    module = importlib.import_module(module_path)
+    module.run()
 
 
 if __name__ == "__main__":

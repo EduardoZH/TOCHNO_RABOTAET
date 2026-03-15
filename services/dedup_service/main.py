@@ -12,32 +12,34 @@ from shared.messaging.rabbitmq_client import RabbitClient
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-redis_store = RedisStore()
-dedup = Deduplicator(redis_store)
-client = RabbitClient()
 
-
-def _handle_message(ch, method, properties, body):
-    payload = json.loads(body)
-    content = payload.get("content", "")
-    duplicate, fingerprint = dedup.is_duplicate(content)
-    payload["simhash"] = fingerprint
-    if duplicate:
-        logger.info("Dedup: drop post %s", payload.get("post_id"))
-        return
-    ch.basic_publish(
-        exchange="",
-        routing_key=queue_names.unique,
-        body=json.dumps(payload, ensure_ascii=False).encode(),
-        properties=pika.BasicProperties(delivery_mode=2),
-    )
-    logger.info("Dedup: forwarded post %s", payload.get("post_id"))
+def _make_handler(dedup):
+    def _handle_message(ch, method, properties, body):
+        payload = json.loads(body)
+        text = " ".join([payload.get("title", ""), payload.get("content", "")])
+        duplicate, fingerprint = dedup.is_duplicate(text)
+        payload["simhash"] = fingerprint
+        if duplicate:
+            logger.info("Dedup: drop post %s", payload.get("post_id"))
+            return
+        ch.basic_publish(
+            exchange="",
+            routing_key=queue_names.unique,
+            body=json.dumps(payload, ensure_ascii=False).encode(),
+            properties=pika.BasicProperties(delivery_mode=2),
+        )
+        logger.info("Dedup: forwarded post %s", payload.get("post_id"))
+    return _handle_message
 
 
 def run() -> None:
-    client.declare_queue(queue_names.filtered)
+    redis_store = RedisStore()
+    dedup = Deduplicator(redis_store)
+    client = RabbitClient()
+    client.declare_queue(queue_names.filtered, dlq_name=queue_names.filtered_dlq)
     client.declare_queue(queue_names.unique)
-    thread = client.consume(queue_names.filtered, _handle_message)
+    thread = client.consume(queue_names.filtered, _make_handler(dedup),
+                            dlq_name=queue_names.filtered_dlq)
     try:
         while thread.is_alive():
             time.sleep(1)

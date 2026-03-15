@@ -1,13 +1,17 @@
 import hashlib
+import re
 from typing import Iterable
+
+_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 
 
 def compute_simhash(text: str, bits: int = 64) -> int:
     if not text:
         return 0
 
+    normalized = _PUNCT_RE.sub("", text.lower())
     vector = [0] * bits
-    for token in text.split():
+    for token in normalized.split():
         digest = hashlib.md5(token.encode()).hexdigest()
         token_hash = int(digest, 16)
         for i in range(bits):

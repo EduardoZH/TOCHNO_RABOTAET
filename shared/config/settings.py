@@ -24,6 +24,9 @@ class QueueNames:
     analysis: str = os.getenv("ANALYSIS_QUEUE", "results")
     raw_dlq: str = os.getenv("RAW_POSTS_DLQ", "raw_posts_dlq")
     filtered_dlq: str = os.getenv("FILTERED_POSTS_DLQ", "filtered_posts_dlq")
+    unique_dlq: str = os.getenv("UNIQUE_POSTS_DLQ", "unique_posts_dlq")
+    embedded_dlq: str = os.getenv("EMBEDDED_POSTS_DLQ", "embedded_posts_dlq")
+    clustered_dlq: str = os.getenv("CLUSTERED_POSTS_DLQ", "clustered_posts_dlq")
 
 
 @dataclass(frozen=True)

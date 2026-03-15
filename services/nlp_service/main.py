@@ -4,15 +4,13 @@ import time
 
 import pika
 
+
 from shared.config.settings import queue_names
 from shared.models.rubert_model import RuBertModel
 from shared.messaging.rabbitmq_client import RabbitClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-client = RabbitClient()
-model = RuBertModel()
 
 
 def _format_output(payload: dict, nlp_result: dict) -> dict:
@@ -34,27 +32,37 @@ def _format_output(payload: dict, nlp_result: dict) -> dict:
     }
 
 
-def _handle_message(ch, method, properties, body):
-    payload = json.loads(body)
-    text = payload.get("content", "")
-    result = model.predict(text)
-    output = _format_output(payload, result)
-    ch.basic_publish(
-        exchange="",
-        routing_key=queue_names.analysis,
-        body=json.dumps(output, ensure_ascii=False).encode(),
-        properties=pika.BasicProperties(delivery_mode=2),
-    )
-    logger.info("NLP: post %s -> cluster %s tone=%s relevancy=%s",
-                payload.get("post_id"), output["clusterId"],
-                output["posts"][0]["metrics"]["tone"],
-                output["posts"][0]["metrics"]["relevancy"])
+def _make_handler(model):
+    def _handle_message(ch, method, properties, body):
+        payload = json.loads(body)
+        text = payload.get("content", "")
+        result = model.predict(text)
+        output = _format_output(payload, result)
+        ch.basic_publish(
+            exchange="",
+            routing_key=queue_names.analysis,
+            body=json.dumps(output, ensure_ascii=False).encode(),
+            properties=pika.BasicProperties(delivery_mode=2),
+        )
+        latency = ""
+        ts = payload.get("timestamp")
+        if ts:
+            latency = f" latency={time.time() - ts:.2f}s"
+        logger.info("NLP: post %s -> cluster %s tone=%s relevancy=%s%s",
+                     payload.get("post_id"), output["clusterId"],
+                     output["posts"][0]["metrics"]["tone"],
+                     output["posts"][0]["metrics"]["relevancy"],
+                     latency)
+    return _handle_message
 
 
 def run() -> None:
-    client.declare_queue(queue_names.clustered)
+    client = RabbitClient()
+    model = RuBertModel()
+    client.declare_queue(queue_names.clustered, dlq_name=queue_names.clustered_dlq)
     client.declare_queue(queue_names.analysis)
-    thread = client.consume(queue_names.clustered, _handle_message)
+    thread = client.consume(queue_names.clustered, _make_handler(model),
+                            dlq_name=queue_names.clustered_dlq)
     try:
         while thread.is_alive():
             time.sleep(1)

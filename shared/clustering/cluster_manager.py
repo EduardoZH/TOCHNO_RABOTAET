@@ -14,9 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 class ClusterManager:
-    def __init__(self, similarity_threshold: float = threshold_config.similarity_threshold):
-        self.redis = redis.from_url(redis_config.url, decode_responses=True)
-        self.qdrant = QdrantStore()
+    def __init__(self, qdrant: QdrantStore | None = None,
+                 similarity_threshold: float = threshold_config.similarity_threshold):
+        self.redis = redis.from_url(redis_config.url, decode_responses=True,
+                                    socket_timeout=5, socket_connect_timeout=5)
+        self.qdrant = qdrant or QdrantStore()
         self.similarity_threshold = similarity_threshold
 
     def assign_cluster(self, post_id: str, vector: list, payload: dict) -> str:
@@ -39,13 +41,27 @@ class ClusterManager:
             cluster_id = f"cluster-{uuid.uuid4()}"
 
         metadata_key = f"cluster_meta:{cluster_id}"
-        self.redis.hset(metadata_key, mapping={
-            "post_id": post_id,
-            "cluster_id": cluster_id,
-            "last_similarity": str(best_score),
-        })
-        self.redis.expire(metadata_key, redis_config.dedup_ttl)
+        try:
+            self.redis.hincrby(metadata_key, "post_count", 1)
+            self.redis.hset(metadata_key, mapping={
+                "last_post_id": post_id,
+                "cluster_id": cluster_id,
+                "last_similarity": str(best_score),
+            })
+            self.redis.expire(metadata_key, redis_config.dedup_ttl)
+        except redis.ConnectionError:
+            logger.warning("Redis unavailable, cluster metadata not saved for %s", cluster_id)
         payload["cluster_id"] = cluster_id
         payload["similarity_score"] = best_score
-        self.qdrant.upsert(point_id=post_id, vector=vector, payload=payload)
+
+        self.qdrant.update_payload(point_id=post_id, payload={
+            "cluster_id": cluster_id,
+            "similarity_score": best_score,
+        })
         return cluster_id
+
+    def close(self):
+        try:
+            self.redis.close()
+        except Exception:
+            pass

@@ -23,6 +23,7 @@ class RabbitClient:
         )
         self.connection = None
         self.channel = None
+        self._shutting_down = False
 
     def connect(self):
         if self.connection and self.connection.is_open:
@@ -47,9 +48,30 @@ class RabbitClient:
                 "x-dead-letter-exchange": "",
                 "x-dead-letter-routing-key": dlq_name,
             }
-            self.channel.queue_declare(queue=name, durable=durable, arguments=args)
+            try:
+                self.channel.queue_declare(queue=name, durable=durable, arguments=args)
+            except pika.exceptions.ChannelClosedByBroker as e:
+                if e.reply_code == 406:
+                    logger.warning(
+                        "Queue '%s' exists with different args, using as-is. "
+                        "Delete the queue manually to enable DLQ.", name)
+                    self.connection = None
+                    self.channel = None
+                    self.connect()
+                    self.channel.queue_declare(queue=name, durable=durable)
+                else:
+                    raise
         else:
-            self.channel.queue_declare(queue=name, durable=durable)
+            try:
+                self.channel.queue_declare(queue=name, durable=durable)
+            except pika.exceptions.ChannelClosedByBroker as e:
+                if e.reply_code == 406:
+                    logger.warning("Queue '%s' exists with different args, skipping re-declare.", name)
+                    self.connection = None
+                    self.channel = None
+                    self.connect()
+                else:
+                    raise
 
     def publish(self, queue: str, payload: dict):
         self.connect()
@@ -61,14 +83,20 @@ class RabbitClient:
             properties=pika.BasicProperties(delivery_mode=2),
         )
 
-    def consume(self, queue: str, callback: Callable, prefetch: int = 1):
+    def consume(self, queue: str, callback: Callable, prefetch: int = 1,
+                dlq_name: str | None = None):
         self.connect()
-        self.channel.queue_declare(queue=queue, durable=True)
+        self.declare_queue(queue, durable=True, dlq_name=dlq_name)
         self.channel.basic_qos(prefetch_count=prefetch)
 
         def wrapped(ch, method, properties, body):
             try:
                 callback(ch, method, properties, body)
+            except json.JSONDecodeError:
+                logger.error("Invalid JSON in message from %s: %s",
+                             queue, body[:200])
+                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+                return
             except Exception:
                 logger.exception("Error processing message from %s", queue)
                 ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
@@ -76,31 +104,40 @@ class RabbitClient:
                 ch.basic_ack(delivery_tag=method.delivery_tag)
 
         def _consume_loop():
-            while True:
+            while not self._shutting_down:
                 try:
                     self.connect()
-                    self.channel.queue_declare(queue=queue, durable=True)
+                    self.declare_queue(queue, durable=True, dlq_name=dlq_name)
                     self.channel.basic_qos(prefetch_count=prefetch)
                     self.channel.basic_consume(queue=queue, on_message_callback=wrapped)
                     logger.info("Started consuming from %s", queue)
                     self.channel.start_consuming()
                 except pika.exceptions.AMQPConnectionError:
+                    if self._shutting_down:
+                        break
                     logger.warning("Lost connection to RabbitMQ, reconnecting...")
                     time.sleep(rabbit_config.reconnect_delay)
                     self.connection = None
                     self.channel = None
                 except Exception:
+                    if self._shutting_down:
+                        break
                     logger.exception("Unexpected error in consumer, reconnecting...")
                     time.sleep(rabbit_config.reconnect_delay)
                     self.connection = None
                     self.channel = None
 
-        thread = threading.Thread(target=_consume_loop, daemon=True)
+        thread = threading.Thread(target=_consume_loop, daemon=False)
         thread.start()
         return thread
 
     def close(self):
+        self._shutting_down = True
         if self.channel and self.channel.is_open:
+            try:
+                self.channel.stop_consuming()
+            except Exception:
+                pass
             try:
                 self.channel.close()
             except Exception:
