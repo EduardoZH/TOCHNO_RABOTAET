@@ -26,6 +26,9 @@ torch>=2.2.0+cpu ; platform_machine != "aarch64"
 # sentence-transformers использует torch выше
 sentence-transformers>=3.0.0
 
+# NLP модель (BertModel, AutoTokenizer, AutoConfig)
+transformers>=4.40.0
+
 # Тестирование и валидация
 pytest>=7.0
 pytest-cov>=4.0

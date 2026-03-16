@@ -4,7 +4,7 @@ import time
 
 
 from shared.config.settings import queue_names
-from shared.models.rubert_model import RuBertModel
+from shared.models.brand_radar_model import BrandRadarPredictor
 from shared.messaging.transport import Transport
 from shared.monitoring.metrics import PipelineMetrics
 
@@ -30,6 +30,7 @@ def _format_output(payload: dict, nlp_result: dict) -> dict:
                     "relevancy_score": round(payload.get("relevancy", 0) / 100, 2),
                     "sentiment": nlp_result.get("sentiment_label", "neutral"),
                     "sentiment_score": round(nlp_result.get("sentiment_score", 0.5), 2),
+                    "risk_score": round(nlp_result.get("risk_score", 0.0), 4),
                 },
             }
         ],
@@ -40,9 +41,10 @@ def _make_handler(model, transport):
     def _handle_message(ch, method, properties, body):
         t0 = time.time()
         payload = json.loads(body)
+        title = payload.get("title", "")
         text = payload.get("content", "")
         try:
-            result = model.predict(text)
+            result = model.predict(title, text)
         except Exception:
             logger.warning("NLP model failed, using fallback (unknown tone)")
             result = {"sentiment_label": "unknown", "sentiment_score": 0.5, "confidence": 0.0}
@@ -66,7 +68,7 @@ def _make_handler(model, transport):
 
 def run() -> None:
     client = Transport()
-    model = RuBertModel()
+    model = BrandRadarPredictor()
     client.declare_queue(queue_names.clustered, dlq_name=queue_names.clustered_dlq)
     client.declare_queue(queue_names.analysis)
     thread = client.consume(queue_names.clustered, _make_handler(model, client),
