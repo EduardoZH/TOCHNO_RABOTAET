@@ -5,40 +5,39 @@
 import json
 import time
 
-from shared.messaging.rabbitmq_client import RabbitClient
-
-BATCH_QUEUE = "batch_input"
+from shared.messaging.transport import Transport
+from shared.config.settings import queue_names
 
 BATCH_MESSAGE = {
     "projectId": "demo-project-batch",
     "keywords": ["мошен", "недвижимост", "афер", "квартир"],
-    "risk_words": ["спам", "реклама"],
+    "exclusions": ["спам", "реклама"],
     "posts": [
         {
             "title": "Мошенники продают несуществующие квартиры",
             "content": "Аферисты обманули десятки покупателей недвижимости в Москве.",
             "type": "article",
-            "url_string": "https://news.example.com/fraud-1",
+            "url": "https://news.example.com/fraud-1",
         },
         {
             "title": "Рынок недвижимости бьёт рекорды",
             "content": "Цены на квартиры выросли на 15% за год.",
             "type": "article",
-            "url_string": "https://news.example.com/market-2",
+            "url": "https://news.example.com/market-2",
         },
         {
             "title": "Котики захватили интернет",
             "content": "Смешные видео с кошками набирают миллионы просмотров.",
             "type": "post",
-            "url_string": "https://cats.example.com/viral-5",
+            "url": "https://cats.example.com/viral-5",
         },
     ],
 }
 
 
 def main():
-    client = RabbitClient()
-    client.declare_queue(BATCH_QUEUE)
+    client = Transport()
+    client.declare_queue("batch_input")
 
     print()
     print("╔══════════════════════════════════════════════════════════════════╗")
@@ -46,11 +45,11 @@ def main():
     print("╚══════════════════════════════════════════════════════════════════╝")
     print(f"  Проект:          {BATCH_MESSAGE['projectId']}")
     print(f"  Ключевые слова:  {BATCH_MESSAGE['keywords']}")
-    print(f"  Risk words:      {BATCH_MESSAGE['risk_words']}")
+    print(f"  Исключения:      {BATCH_MESSAGE['exclusions']}")
     print(f"  Постов в batch:  {len(BATCH_MESSAGE['posts'])}")
     print()
 
-    client.publish(BATCH_QUEUE, BATCH_MESSAGE)
+    client.publish("batch_input", BATCH_MESSAGE)
 
     print("  >>> Batch отправлен в очередь: batch_input")
     print("  Splitter разобьёт на отдельные посты → raw_posts → pipeline")

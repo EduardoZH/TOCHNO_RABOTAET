@@ -7,7 +7,7 @@ Splitter service — принимает batch-сообщение по API-кон
     "projectId": "uuid",
     "keywords": ["string"],
     "risk_words": ["string"],
-    "posts": [{"title": "...", "content": "...", "type": "...", "url_string": "..."}]
+    "posts": [{"title": "...", "content": "...", "type": "...", "url": "..."}]
 }
 
 Выход (очередь raw_posts): по одному сообщению на пост:
@@ -19,7 +19,7 @@ Splitter service — принимает batch-сообщение по API-кон
     "title": "...",
     "content": "...",
     "type": "...",
-    "url_string": "...",
+    "url": "...",
     "timestamp": float
 }
 """
@@ -28,10 +28,8 @@ import logging
 import time
 import uuid
 
-import pika
-
 from shared.config.settings import queue_names
-from shared.messaging.rabbitmq_client import RabbitClient
+from shared.messaging.transport import Transport
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,7 +37,7 @@ logger = logging.getLogger(__name__)
 BATCH_QUEUE = "batch_input"
 
 
-def _make_handler():
+def _make_handler(transport):
     def _handle_message(ch, method, properties, body):
         batch = json.loads(body)
         project_id = batch.get("projectId", "")
@@ -50,6 +48,7 @@ def _make_handler():
             logger.warning("Splitter: empty batch for project %s", project_id)
             return
 
+        total_posts = len(posts)
         for post_data in posts:
             message = {
                 "post_id": str(uuid.uuid4()),
@@ -59,24 +58,23 @@ def _make_handler():
                 "title": post_data.get("title", ""),
                 "content": post_data.get("content", ""),
                 "type": post_data.get("type", ""),
-                "url_string": post_data.get("url_string", ""),
+                "url": post_data.get("url", ""),
                 "timestamp": time.time(),
+                "total_posts": total_posts,  # Для агрегации по проектам
             }
-            ch.basic_publish(
-                exchange="",
-                routing_key=queue_names.raw,
-                body=json.dumps(message, ensure_ascii=False).encode(),
-                properties=pika.BasicProperties(delivery_mode=2),
-            )
+            transport.publish(queue_names.raw, message)
         logger.info("Splitter: split batch of %d posts for project %s", len(posts), project_id)
+        if hasattr(ch, 'basic_ack'):
+            ch.basic_ack(delivery_tag=method.delivery_tag)
     return _handle_message
 
 
 def run() -> None:
-    client = RabbitClient()
+    client = Transport()
+    logger.info("Splitter: Transport backend id=%s", id(client._backend))
     client.declare_queue(BATCH_QUEUE)
     client.declare_queue(queue_names.raw)
-    thread = client.consume(BATCH_QUEUE, _make_handler())
+    thread = client.consume(BATCH_QUEUE, _make_handler(client))
     try:
         while thread.is_alive():
             time.sleep(1)

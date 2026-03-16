@@ -1,18 +1,19 @@
 """
-Слушает очередь results и наглядно показывает выходные данные pipeline.
+Слушает очередь project_results и наглядно показывает выходные данные pipeline.
 Запуск: $env:PYTHONPATH="."; .venv\Scripts\python scripts\demo_receive.py
 """
 import json
 import signal
 import sys
 import time
-
-import pika
+import threading
 
 from shared.config.settings import queue_names
+from shared.messaging.transport import Transport
 
 received = 0
 start_time = time.time()
+shutdown_event = threading.Event()
 
 
 def tone_icon(tone: str) -> str:
@@ -25,78 +26,81 @@ def relevancy_bar(score: int) -> str:
     return f"[{bar}] {score}%"
 
 
-def print_result(body: bytes):
+def print_result(payload: dict):
     global received
     received += 1
-    msg = json.loads(body)
 
-    cluster_id = str(msg.get("clusterId", "N/A"))
-    project_id = msg.get("projectId", "N/A")
-    posts = msg.get("posts", [{}])
-    post = posts[0] if posts else {}
-    metrics = post.get("metrics", {})
-    relevancy = metrics.get("relevancy", 0)
-    tone = metrics.get("tone", "unknown")
-    title = post.get("title", "")
-    content = post.get("content", "")
+    project_id = payload.get("projectId", "N/A")
+    posts = payload.get("posts", [])
 
     print()
     print("╔══════════════════════════════════════════════════════════════════╗")
-    print(f"║  РЕЗУЛЬТАТ #{received:<59}║")
+    print(f"║  ПРОЕКТ #{received:<58}║")
     print("╠══════════════════════════════════════════════════════════════════╣")
     print(f"║  projectId:  {project_id:<55}║")
-    print(f"║  clusterId:  {cluster_id[:55]:<55}║")
+    print(f"║  Постов в проекте: {len(posts):<48}║")
     print("╠══════════════════════════════════════════════════════════════════╣")
-    print(f"║  Заголовок:  {title[:55]:<55}║")
-    print(f"║  Контент:    {content[:55]:<55}║")
-    if len(content) > 55:
-        print(f"║              {content[55:110]:<55}║")
-    print("╠══════════════════════════════════════════════════════════════════╣")
-    print(f"║  МЕТРИКИ:                                                        ║")
-    print(f"║    Тональность: {tone_icon(tone):<52}║")
-    rel_bar = relevancy_bar(relevancy)
-    print(f"║    Релевантность: {rel_bar:<50}║")
+
+    for i, post in enumerate(posts, 1):
+        title = post.get("title", "")[:50]
+        content = post.get("content", "")[:50]
+        post_type = post.get("type", "")
+        cluster_id = str(post.get("cluster_id", "N/A"))[:20]
+        metrics = post.get("metrics", {})
+        relevancy = metrics.get("relevancy", 0)
+        tone = metrics.get("tone", "unknown")
+
+        print(f"║                                                                    ║")
+        print(f"║  ПОСТ #{i:<54}║")
+        print(f"║  Заголовок:  {title:<55}║")
+        print(f"║  Контент:    {content:<55}║")
+        print(f"║  Тип: {post_type:<12} Кластер: {cluster_id:<40}║")
+        print(f"║  МЕТРИКИ:                                                        ║")
+        rel_bar = relevancy_bar(relevancy)
+        print(f"║    Тональность: {tone_icon(tone):<52}║")
+        print(f"║    Релевантность: {rel_bar:<50}║")
+        if i < len(posts):
+            print(f"║  ────────────────────────────────────────────────────────────  ║")
+
     print("╚══════════════════════════════════════════════════════════════════╝")
 
 
-def on_message(ch, method, properties, body):
-    print_result(body)
-    ch.basic_ack(delivery_tag=method.delivery_tag)
+def on_message(payload):
+    print_result(payload)
 
 
 def main():
+    global shutdown_event
+
     print()
     print("╔══════════════════════════════════════════════════════════════════╗")
     print("║              ОЖИДАНИЕ РЕЗУЛЬТАТОВ ИЗ PIPELINE                   ║")
     print("╚══════════════════════════════════════════════════════════════════╝")
-    print(f"  Очередь: {queue_names.analysis}")
+    print(f"  Очередь: {queue_names.project_results}")
     print("  Ctrl+C для остановки")
     print()
     print("  Ожидаем сообщения...")
 
-    creds = pika.PlainCredentials("guest", "guest")
-    conn = pika.BlockingConnection(
-        pika.ConnectionParameters("localhost", 5672, credentials=creds)
-    )
-    ch = conn.channel()
-    ch.queue_declare(queue=queue_names.analysis, durable=True)
-    ch.basic_qos(prefetch_count=1)
-    ch.basic_consume(queue=queue_names.analysis, on_message_callback=on_message)
+    client = Transport()
+    client.declare_queue(queue_names.project_results)
+    thread = client.consume(queue_names.project_results, on_message)
 
     def shutdown(sig, frame):
         elapsed = round(time.time() - start_time)
         print()
-        print(f"  Остановка. Получено результатов: {received} за {elapsed}с")
-        ch.stop_consuming()
+        print(f"  Остановка. Получено проектов: {received} за {elapsed}с")
+        shutdown_event.set()
+        client.close()
 
     signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
 
     try:
-        ch.start_consuming()
-    except Exception:
+        shutdown_event.wait()
+    except KeyboardInterrupt:
         pass
-    finally:
-        conn.close()
+
+    print("  Demo receive stopped.")
 
 
 if __name__ == "__main__":

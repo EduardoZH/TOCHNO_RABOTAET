@@ -7,38 +7,38 @@ import time
 import uuid
 
 from shared.config.settings import queue_names
-from shared.messaging.rabbitmq_client import RabbitClient
+from shared.messaging.transport import Transport
 
 POSTS = [
     {
         "title": "Мошенники продают несуществующие квартиры",
         "content": "Аферисты обманули десятки покупателей недвижимости в Москве. Жертвы лишились сбережений.",
         "type": "article",
-        "url_string": "https://news.example.com/fraud-1",
+        "url": "https://news.example.com/fraud-1",
     },
     {
         "title": "Рынок недвижимости в Москве бьёт рекорды",
         "content": "Цены на квартиры выросли на 15% за год. Эксперты связывают рост с ипотечными программами.",
         "type": "article",
-        "url_string": "https://news.example.com/market-2",
+        "url": "https://news.example.com/market-2",
     },
     {
         "title": "Мошенническая схема с арендой жилья раскрыта",
         "content": "Полиция задержала группу аферистов, сдававших одни и те же квартиры разным людям одновременно.",
         "type": "post",
-        "url_string": "https://news.example.com/fraud-3",
+        "url": "https://news.example.com/fraud-3",
     },
     {
         "title": "Новый ЖК открылся в Подмосковье",
         "content": "Застройщик сдал 500 квартир. Инфраструктура включает школы и детские сады.",
         "type": "article",
-        "url_string": "https://news.example.com/new-complex-4",
+        "url": "https://news.example.com/new-complex-4",
     },
     {
         "title": "Котики захватили интернет",
         "content": "Смешные видео с кошками набирают миллионы просмотров. Зоопсихологи объясняют феномен.",
         "type": "post",
-        "url_string": "https://cats.example.com/viral-5",
+        "url": "https://cats.example.com/viral-5",
     },
 ]
 
@@ -51,7 +51,7 @@ def print_separator():
 
 
 def main():
-    client = RabbitClient()
+    client = Transport()
     client.declare_queue(queue_names.raw)
 
     print()
@@ -70,11 +70,12 @@ def main():
             "title": post_data["title"],
             "content": post_data["content"],
             "type": post_data["type"],
-            "url_string": post_data["url_string"],
+            "url": post_data["url"],
             "keywords": KEYWORDS,
             "exclusions": EXCLUSIONS,
             "timestamp": time.time(),
             "projectId": "demo-project",
+            "total_posts": 1,
         }
 
         print_separator()

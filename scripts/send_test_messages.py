@@ -3,7 +3,7 @@ import random
 import time
 
 from shared.config.settings import queue_names
-from shared.messaging.rabbitmq_client import RabbitClient
+from shared.messaging.transport import Transport
 
 
 def build_post(index: int) -> dict:
@@ -17,11 +17,12 @@ def build_post(index: int) -> dict:
         "exclusions": exclusions,
         "timestamp": time.time(),
         "projectId": "demo",
+        "total_posts": 1,
     }
 
 
 def main() -> None:
-    client = RabbitClient()
+    client = Transport()
     client.declare_queue(queue_names.raw)
     for i in range(10):
         post = build_post(i)

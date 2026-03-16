@@ -22,7 +22,7 @@ def sample_post():
         "title": "Мошенники продают несуществующие квартиры",
         "content": "Аферисты обманули десятки покупателей недвижимости в Москве.",
         "type": "article",
-        "url_string": "https://example.com/post/1",
+        "url": "https://example.com/post/1",
         "timestamp": 1710500000.0,
     }
 
@@ -37,7 +37,7 @@ def sample_post_irrelevant():
         "title": "Котики захватили интернет",
         "content": "Смешные видео с кошками набирают миллионы просмотров.",
         "type": "post",
-        "url_string": "https://example.com/cats",
+        "url": "https://example.com/cats",
         "timestamp": 1710500000.0,
     }
 

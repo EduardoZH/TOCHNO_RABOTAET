@@ -5,11 +5,10 @@ import uuid
 from functools import lru_cache
 
 import numpy as np
-import pika
 
 from shared.config.settings import queue_names
 from shared.embeddings.embedder import text_to_embedding, texts_to_embeddings
-from shared.messaging.rabbitmq_client import RabbitClient
+from shared.messaging.transport import Transport
 from shared.vector_store.qdrant_store import QdrantStore
 from shared.monitoring.metrics import PipelineMetrics
 from shared.monitoring.drift_detector import DriftDetector
@@ -39,7 +38,7 @@ def _max_keyword_similarity(embedding: list, keyword_embeddings: list) -> float:
     return best
 
 
-def _make_handler(vector_store):
+def _make_handler(vector_store, transport):
     def _handle_message(ch, method, properties, body):
         t0 = time.time()
         payload = json.loads(body)
@@ -65,12 +64,7 @@ def _make_handler(vector_store):
             vector=embedding,
             payload={k: v for k, v in payload.items() if k not in ("embedding", "qdrant_point_id")},
         )
-        ch.basic_publish(
-            exchange="",
-            routing_key=queue_names.embedded,
-            body=json.dumps(payload, ensure_ascii=False).encode(),
-            properties=pika.BasicProperties(delivery_mode=2),
-        )
+        transport.publish(queue_names.embedded, payload)
         metrics.inc("messages_processed")
         metrics.observe_latency(time.time() - t0)
         drift.record(payload["relevancy"])
@@ -81,15 +75,17 @@ def _make_handler(vector_store):
             if drift_status.get("drift_detected"):
                 logger.warning("RELEVANCY DRIFT: %s", drift_status)
         logger.info("Embedding: indexed post %s (relevancy=%s)", raw_id, payload["relevancy"])
+        if hasattr(ch, 'basic_ack'):
+            ch.basic_ack(delivery_tag=method.delivery_tag)
     return _handle_message
 
 
 def run() -> None:
-    client = RabbitClient()
+    client = Transport()
     vector_store = QdrantStore()
     client.declare_queue(queue_names.unique, dlq_name=queue_names.unique_dlq)
     client.declare_queue(queue_names.embedded)
-    thread = client.consume(queue_names.unique, _make_handler(vector_store),
+    thread = client.consume(queue_names.unique, _make_handler(vector_store, client),
                             dlq_name=queue_names.unique_dlq)
     try:
         while thread.is_alive():

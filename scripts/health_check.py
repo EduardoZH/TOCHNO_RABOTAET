@@ -5,30 +5,8 @@ import sys
 import time
 import urllib.request
 
-RABBIT_API = "http://localhost:15672/api"
-RABBIT_CREDS = "guest:guest"
 QDRANT_URL = "http://localhost:6333"
 REDIS_URL = "redis://localhost:6379"
-
-
-def check_rabbitmq() -> dict:
-    try:
-        import base64
-        auth = base64.b64encode(RABBIT_CREDS.encode()).decode()
-        req = urllib.request.Request(f"{RABBIT_API}/queues",
-                                     headers={"Authorization": f"Basic {auth}"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            queues = json.loads(resp.read())
-        queue_info = {}
-        for q in queues:
-            name = q.get("name", "")
-            msgs = q.get("messages", 0)
-            queue_info[name] = msgs
-            if msgs > 1000:
-                print(f"  WARNING: Queue '{name}' has {msgs} messages (backpressure!)")
-        return {"status": "healthy", "queues": queue_info}
-    except Exception as e:
-        return {"status": "unhealthy", "error": str(e)}
 
 
 def check_redis() -> dict:
@@ -83,7 +61,6 @@ def main():
     print("=" * 60)
 
     checks = {
-        "RabbitMQ": check_rabbitmq,
         "Redis": check_redis,
         "Qdrant": check_qdrant,
     }
@@ -99,6 +76,20 @@ def main():
                 print(f"       {k}: {v}")
         if status != "healthy":
             overall = "degraded"
+
+    # Check embedding model
+    print(f"\n{'=' * 60}")
+    print("  ML COMPONENTS")
+    print(f"{'=' * 60}")
+    result = check_embedding_model()
+    status = result.get("status", "unknown")
+    icon = "OK" if status == "healthy" else "FAIL"
+    print(f"\n  [{icon}] Embedding Model: {status}")
+    for k, v in result.items():
+        if k != "status":
+            print(f"       {k}: {v}")
+    if status != "healthy":
+        overall = "degraded"
 
     print(f"\n{'=' * 60}")
     print(f"  Overall: {overall}")

@@ -10,6 +10,7 @@ SERVICE_MODULES = {
     "embedding": "services.embedding_service.main",
     "clustering": "services.clustering_service.main",
     "nlp": "services.nlp_service.main",
+    "aggregator": "services.aggregator_service.main",
 }
 
 

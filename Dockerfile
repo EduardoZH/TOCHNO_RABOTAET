@@ -33,4 +33,6 @@ RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/wh
 
 COPY . .
 
-CMD ["python", "main.py"]
+# Default: single-container mode (все сервисы в одном процессе)
+# Для multi-container: переопредели CMD в docker-compose.yml
+CMD ["python", "single_container.py"]

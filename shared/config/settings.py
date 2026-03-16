@@ -22,6 +22,7 @@ class QueueNames:
     embedded: str = os.getenv("EMBEDDED_POSTS_QUEUE", "embedded_posts")
     clustered: str = os.getenv("CLUSTERED_POSTS_QUEUE", "clustered_posts")
     analysis: str = os.getenv("ANALYSIS_QUEUE", "results")
+    project_results: str = os.getenv("PROJECT_RESULTS_QUEUE", "project_results")
     raw_dlq: str = os.getenv("RAW_POSTS_DLQ", "raw_posts_dlq")
     filtered_dlq: str = os.getenv("FILTERED_POSTS_DLQ", "filtered_posts_dlq")
     unique_dlq: str = os.getenv("UNIQUE_POSTS_DLQ", "unique_posts_dlq")

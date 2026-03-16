@@ -3,14 +3,13 @@ import logging
 import time
 
 from shared.config.settings import queue_names
-from shared.messaging.rabbitmq_client import RabbitClient
+from shared.messaging.transport import Transport
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def _handle_result(ch, method, properties, body):
-    payload = json.loads(body)
+def _handle_result(payload):
     cluster_id = payload.get("clusterId")
     project_id = payload.get("projectId")
     posts = payload.get("posts", [])
@@ -27,7 +26,8 @@ def _handle_result(ch, method, properties, body):
 
 
 def main() -> None:
-    client = RabbitClient()
+    client = Transport()
+    client.declare_queue(queue_names.analysis)
     thread = client.consume(queue_names.analysis, _handle_result)
     try:
         while thread.is_alive():
