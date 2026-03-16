@@ -11,9 +11,14 @@ from shared.config.settings import queue_names
 from shared.embeddings.embedder import text_to_embedding, texts_to_embeddings
 from shared.messaging.rabbitmq_client import RabbitClient
 from shared.vector_store.qdrant_store import QdrantStore
+from shared.monitoring.metrics import PipelineMetrics
+from shared.monitoring.drift_detector import DriftDetector
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+metrics = PipelineMetrics("embedding")
+drift = DriftDetector(window_size=500)
 
 
 @lru_cache(maxsize=128)
@@ -36,6 +41,7 @@ def _max_keyword_similarity(embedding: list, keyword_embeddings: list) -> float:
 
 def _make_handler(vector_store):
     def _handle_message(ch, method, properties, body):
+        t0 = time.time()
         payload = json.loads(body)
         text = payload.get("content", "")
         raw_id = payload.get("post_id", str(time.time()))
@@ -65,6 +71,15 @@ def _make_handler(vector_store):
             body=json.dumps(payload, ensure_ascii=False).encode(),
             properties=pika.BasicProperties(delivery_mode=2),
         )
+        metrics.inc("messages_processed")
+        metrics.observe_latency(time.time() - t0)
+        drift.record(payload["relevancy"])
+        if metrics._counters["messages_processed"] == 500:
+            drift.set_baseline()
+        if metrics._counters["messages_processed"] % 100 == 0:
+            drift_status = drift.check_drift()
+            if drift_status.get("drift_detected"):
+                logger.warning("RELEVANCY DRIFT: %s", drift_status)
         logger.info("Embedding: indexed post %s (relevancy=%s)", raw_id, payload["relevancy"])
     return _handle_message
 

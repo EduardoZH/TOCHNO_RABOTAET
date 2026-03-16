@@ -9,9 +9,13 @@ _morph = pymorphy3.MorphAnalyzer()
 
 
 def _lemmatize(text: str) -> str:
-    tokens = text.lower().split()
-    lemmas = [_morph.parse(token)[0].normal_form for token in tokens]
-    return " ".join(lemmas)
+    try:
+        tokens = text.lower().split()
+        lemmas = [_morph.parse(token)[0].normal_form for token in tokens]
+        return " ".join(lemmas)
+    except Exception:
+        logger.warning("pymorphy3 failed, falling back to raw text matching")
+        return text.lower()
 
 
 def _lemmatize_token(token: str) -> str:
@@ -45,6 +49,20 @@ def contains_exclusion(text: str, exclusions: Sequence[str]) -> bool:
         if exc.lower() in text.lower():
             return True
     return False
+
+
+def matched_keywords(text: str, keywords: Sequence[str]) -> list:
+    """Return list of keywords that matched the text (for explainability)."""
+    lemmatized_text = _lemmatize(text)
+    matched = []
+    for kw in keywords:
+        kw_lemma = _lemmatize_token(kw)
+        if (kw_lemma in lemmatized_text.split()
+                or kw.lower() in lemmatized_text
+                or kw_lemma in lemmatized_text
+                or kw.lower() in text.lower()):
+            matched.append(kw)
+    return matched
 
 
 def should_process(post: dict, keywords: Sequence[str], exclusions: Sequence[str]) -> bool:

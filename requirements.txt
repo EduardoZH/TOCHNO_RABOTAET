@@ -25,3 +25,9 @@ torch>=2.2.0+cpu ; platform_machine != "aarch64"
 
 # sentence-transformers использует torch выше
 sentence-transformers>=3.0.0
+
+# Тестирование и валидация
+pytest>=7.0
+pytest-cov>=4.0
+fakeredis>=2.0
+pandas>=2.0

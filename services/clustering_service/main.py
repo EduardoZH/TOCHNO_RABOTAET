@@ -8,24 +8,37 @@ from shared.clustering.cluster_manager import ClusterManager
 from shared.config.settings import queue_names
 from shared.messaging.rabbitmq_client import RabbitClient
 from shared.vector_store.qdrant_store import QdrantStore
+from shared.monitoring.metrics import PipelineMetrics
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+metrics = PipelineMetrics("clustering")
+
 
 def _make_handler(cluster_manager, vector_store):
     def _handle_message(ch, method, properties, body):
+        t0 = time.time()
         payload = json.loads(body)
         point_id = payload.get("qdrant_point_id")
         post_id = payload.get("post_id")
         if not point_id or not post_id:
-            logger.error("Clustering: missing point_id/post_id, sending to DLQ: %s", payload)
+            metrics.inc("messages_errored")
             raise ValueError(f"Missing required fields: point_id={post_id}, qdrant_point_id={point_id}")
-        embedding = vector_store.get_vector(point_id)
-        if not embedding:
-            logger.error("Clustering: vector not found in Qdrant for %s, sending to DLQ", point_id)
-            raise ValueError(f"Vector not found for point_id={point_id}")
-        cluster_id = cluster_manager.assign_cluster(post_id, embedding, payload)
+
+        try:
+            embedding = vector_store.get_vector(point_id)
+            if not embedding:
+                raise ValueError(f"Vector not found for point_id={point_id}")
+            cluster_id = cluster_manager.assign_cluster(post_id, embedding, payload)
+        except Exception:
+            # Fallback: assign "unknown" cluster so message isn't lost
+            logger.warning("Clustering fallback for %s: assigning unknown cluster", post_id)
+            cluster_id = "unknown"
+            payload["cluster_id"] = cluster_id
+            payload["similarity_score"] = 0.0
+            payload["fallback"] = True
+
         logger.info("Clustering: assigned %s to %s", post_id, cluster_id)
         ch.basic_publish(
             exchange="",
@@ -33,6 +46,8 @@ def _make_handler(cluster_manager, vector_store):
             body=json.dumps(payload, ensure_ascii=False).encode(),
             properties=pika.BasicProperties(delivery_mode=2),
         )
+        metrics.inc("messages_processed")
+        metrics.observe_latency(time.time() - t0)
     return _handle_message
 
 

@@ -8,27 +8,34 @@ from services.dedup_service.deduplicator import Deduplicator
 from services.dedup_service.redis_store import RedisStore
 from shared.config.settings import queue_names
 from shared.messaging.rabbitmq_client import RabbitClient
+from shared.monitoring.metrics import PipelineMetrics
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+metrics = PipelineMetrics("dedup")
+
 
 def _make_handler(dedup):
     def _handle_message(ch, method, properties, body):
+        t0 = time.time()
         payload = json.loads(body)
         text = " ".join([payload.get("title", ""), payload.get("content", "")])
         duplicate, fingerprint = dedup.is_duplicate(text)
         payload["simhash"] = fingerprint
         if duplicate:
+            metrics.inc("messages_duplicated")
             logger.info("Dedup: drop post %s", payload.get("post_id"))
-            return
-        ch.basic_publish(
-            exchange="",
-            routing_key=queue_names.unique,
-            body=json.dumps(payload, ensure_ascii=False).encode(),
-            properties=pika.BasicProperties(delivery_mode=2),
-        )
-        logger.info("Dedup: forwarded post %s", payload.get("post_id"))
+        else:
+            ch.basic_publish(
+                exchange="",
+                routing_key=queue_names.unique,
+                body=json.dumps(payload, ensure_ascii=False).encode(),
+                properties=pika.BasicProperties(delivery_mode=2),
+            )
+            logger.info("Dedup: forwarded post %s", payload.get("post_id"))
+        metrics.inc("messages_processed")
+        metrics.observe_latency(time.time() - t0)
     return _handle_message
 
 

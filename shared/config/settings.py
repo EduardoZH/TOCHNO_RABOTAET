@@ -48,6 +48,7 @@ class VectorConfig:
 class ModelConfig:
     rubert_model: str = os.getenv("RUBERT_MODEL", "DeepPavlov/rubert-base-cased-sentiment")
     embedding_model: str = os.getenv("EMBEDDING_MODEL", "cointegrated/rubert-tiny2")
+    embedding_model_version: str = os.getenv("EMBEDDING_MODEL_VERSION", "1.0.0")
 
 
 @dataclass(frozen=True)
