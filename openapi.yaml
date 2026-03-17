@@ -323,7 +323,3 @@ components:
         error:
           type: string
           description: Описание ошибки
-
-```
-
-Теперь создам HTML страницу со swagger-ui:
