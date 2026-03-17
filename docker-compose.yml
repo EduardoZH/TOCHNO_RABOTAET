@@ -1,0 +1,97 @@
+version: '3.8'
+
+# ─────────────────────────────────────────────────────────
+# Архитектура:
+#   Вход:  RabbitMQ queue 'batch_input'
+#   Выход: RabbitMQ queue 'project_results'
+#   Внутри pipeline: in-memory очереди (без накладных расходов сети)
+#
+# Контейнеры:
+#   rabbitmq  — внешний вход/выход
+#   mlpipeline — все сервисы + bridge
+#   redis     — дедупликация (SimHash)
+#   qdrant    — векторное хранилище
+# ─────────────────────────────────────────────────────────
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    mem_limit: 512m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mlpipeline:
+    build: .
+    image: mlpipeline:latest
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    environment:
+      # In-memory транспорт внутри pipeline
+      - TRANSPORT_MODE=in_memory
+
+      # RabbitMQ для внешнего входа/выхода
+      - RABBIT_HOST=rabbitmq
+      - RABBIT_PORT=5672
+      - RABBIT_USER=guest
+      - RABBIT_PASS=guest
+
+      # Redis для дедупликации
+      - REDIS_URL=redis://redis:6379
+
+      # Qdrant для векторов
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+
+      # Модель эмбеддингов
+      - EMBEDDING_MODEL=cointegrated/rubert-tiny2
+      - EMBEDDING_DIM=312
+
+      # Таймаут агрегатора
+      - AGGREGATOR_TIMEOUT_SEC=2.0
+    mem_limit: 3g
+    stop_grace_period: 10s
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    command: python http_api.py
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    mem_limit: 256m
+    restart: unless-stopped
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    mem_limit: 1g
+    restart: unless-stopped
+
+# ─────────────────────────────────────────────────────────
+# Запуск:
+#   docker-compose up -d
+#
+# Логи:
+#   docker-compose logs -f mlpipeline
+#
+# RabbitMQ UI: http://localhost:15672 (guest/guest)
+# Qdrant UI:   http://localhost:6333/dashboard
+# ─────────────────────────────────────────────────────────

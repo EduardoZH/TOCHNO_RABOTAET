@@ -1,0 +1,329 @@
+openapi: 3.0.3
+info:
+  title: ML Pipeline API — Brand Reputation Monitoring
+  description: |
+    Микросервис мониторинга репутации бренда в русскоязычных соцсетях.
+    
+    ## Архитектура
+    ```
+    Внешний продюсер → RabbitMQ [batch_input] → ML Pipeline → RabbitMQ [project_results] → Внешний консьюмер
+    ```
+    
+    ## Пайплайн обработки
+    1. **Splitter** — разбивает batch на посты
+    2. **Prefilter** — морфологическая фильтрация (pymorphy3)
+    3. **Dedup** — SimHash дедупликация (Redis LSH)
+    4. **Embedding** — rubert-tiny2 векторизация (312-dim)
+    5. **Clustering** — Qdrant ANN поиск
+    6. **NLP** — тональность + risk-оценка
+    7. **Aggregator** — группировка по projectId
+  version: 1.0.0
+  contact:
+    name: Team 12 Backend
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+tags:
+  - name: Health
+    description: Проверка работоспособности сервиса
+  - name: Pipeline
+    description: Отправка и получение данных пайплайна
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Проверка работоспособности ML pipeline
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Сервис работает
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: healthy
+
+  /send:
+    post:
+      tags:
+        - Pipeline
+      summary: Отправить batch постов на обработку
+      description: |
+        Отправляет пакет постов в RabbitMQ очередь `batch_input`.
+        
+        **Обработка:**
+        - Посты фильтруются по keywords/exclusions
+        - Дубликаты удаляются (SimHash)
+        - Векторизуются и кластеризуются
+        - Определяется тональность
+        
+        **Важно:** Посты, не прошедшие фильтрацию или дедупликацию, не появятся в результатах.
+      operationId: sendBatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchRequest'
+            example:
+              projectId: test-12345
+              keywords: ["мошен", "афер", "обман"]
+              exclusions: ["реклама"]
+              risk_words: ["спам"]
+              posts:
+                - title: Мошенники схема 12345
+                  content: Аферисты обманули покупателей 12345
+                  type: article
+                  url: http://example.com/12345/1
+                - title: Котики 12345
+                  content: Смешные кошки 12345
+                  type: post
+                  url: http://example.com/12345/2
+      responses:
+        '200':
+          description: Batch успешно отправлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+              example:
+                status: sent
+        '400':
+          description: Некорректный запрос
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /results:
+    get:
+      tags:
+        - Pipeline
+      summary: Получить результаты обработки
+      description: |
+        Возвращает результаты обработки batch'ей из очереди `project_results`.
+        
+        **Время обработки:** ~16 секунд после отправки batch'а (таймаут агрегатора 2 сек + обработка)
+        
+        **Фильтрация:** В результатах только посты, прошедшие prefilter и dedup.
+      operationId: getResults
+      responses:
+        '200':
+          description: Результаты обработки
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultsResponse'
+              example:
+                results:
+                  - projectId: test-12345
+                    posts:
+                      - title: Мошенники схема 12345
+                        content: Аферисты обманули покупателей 12345
+                        type: article
+                        url: http://example.com/12345/1
+                        metrics:
+                          relevancy: 61
+                          relevancy_score: 0.61
+                          sentiment: negative
+                          sentiment_score: 0.54
+                          risk_score: 0.49
+                        cluster_id: cluster-1ccb8c01-0af2-4e1d-ac4f-3c1fc82eb09f
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [healthy]
+          description: Статус сервиса
+
+    BatchRequest:
+      type: object
+      required:
+        - projectId
+        - posts
+      properties:
+        projectId:
+          type: string
+          description: Уникальный идентификатор проекта
+          example: test-12345
+        keywords:
+          type: array
+          items:
+            type: string
+          description: Ключевые слова для поиска релевантных постов
+          example: ["мошен", "афер", "обман"]
+        exclusions:
+          type: array
+          items:
+            type: string
+          description: Слова для исключения нерелевантных постов
+          example: ["реклама"]
+        risk_words:
+          type: array
+          items:
+            type: string
+          description: Слова для определения risk-постов
+          example: ["спам"]
+        posts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Post'
+          description: Список постов для обработки
+          minItems: 1
+
+    Post:
+      type: object
+      required:
+        - title
+        - content
+        - type
+        - url
+      properties:
+        title:
+          type: string
+          description: Заголовок поста
+          example: Мошенники схема 12345
+        content:
+          type: string
+          description: Текст поста
+          example: Аферисты обманули покупателей 12345
+        type:
+          type: string
+          description: Тип поста (article, post, video, etc.)
+          example: article
+        url:
+          type: string
+          format: uri
+          description: Ссылка на пост
+          example: http://example.com/12345/1
+
+    SendResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [sent]
+          description: Статус отправки
+
+    ResultsResponse:
+      type: object
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectResult'
+
+    ProjectResult:
+      type: object
+      required:
+        - projectId
+        - posts
+      properties:
+        projectId:
+          type: string
+          description: Идентификатор проекта
+        posts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProcessedPost'
+
+    ProcessedPost:
+      type: object
+      required:
+        - title
+        - content
+        - type
+        - url
+        - metrics
+        - cluster_id
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+          maxLength: 500
+          description: Текст поста (обрезан до 500 символов)
+        type:
+          type: string
+        url:
+          type: string
+          format: uri
+        metrics:
+          $ref: '#/components/schemas/PostMetrics'
+        cluster_id:
+          type: string
+          description: Идентификатор кластера (инфоповода)
+          example: cluster-1ccb8c01-0af2-4e1d-ac4f-3c1fc82eb09f
+
+    PostMetrics:
+      type: object
+      required:
+        - relevancy
+        - relevancy_score
+        - sentiment
+        - sentiment_score
+        - risk_score
+      properties:
+        relevancy:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Релевантность в процентах
+          example: 61
+        relevancy_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          format: float
+          description: Релевантность (0.0 - 1.0)
+          example: 0.61
+        sentiment:
+          type: string
+          enum: [negative, neutral, positive, unknown]
+          description: Тональность поста
+          example: negative
+        sentiment_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          format: float
+          description: Уверенность модели в тональности
+          example: 0.54
+        risk_score:
+          type: number
+          minimum: 0
+          maximum: 1
+          format: float
+          description: Risk-оценка (вероятность негатива)
+          example: 0.49
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Описание ошибки
+
+```
+
+Теперь создам HTML страницу со swagger-ui:
