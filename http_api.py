@@ -121,9 +121,34 @@ class PipelineHandler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({"results": results_copy}, ensure_ascii=False).encode())
+        elif self.path == '/swagger' or self.path == '/swagger/':
+            # Swagger UI HTML
+            self._serve_static_file('docs/swagger.html', 'text/html')
+        elif self.path == '/openapi.yaml':
+            # OpenAPI spec
+            self._serve_static_file('openapi.yaml', 'application/yaml')
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _serve_static_file(self, relative_path: str, content_type: str):
+        """Serve static file from project root."""
+        import os
+        # В контейнере рабочая директория /app, файлы копируются туда же
+        file_path = os.path.join('/app', relative_path)
+        try:
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            self.send_response(200)
+            self.send_header('Content-type', content_type)
+            self.send_header('Content-Length', len(content))
+            self.end_headers()
+            self.wfile.write(content)
+        except FileNotFoundError:
+            self.send_response(404)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "File not found"}).encode())
 
     def log_message(self, format, *args):
         logger.info("HTTP: %s", args[0])
